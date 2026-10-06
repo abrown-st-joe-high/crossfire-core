@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Crossfire Core</title>
+<style>
+:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+html,body{height:100%;margin:0;background:#0b0e1a;color:#dfe6ff;font-family:system-ui,sans-serif}
+body{display:flex;flex-direction:column;align-items:center;justify-content:center}
+canvas{background:#0b0e1a;max-width:100%;max-height:calc(100% - 30px);aspect-ratio:1;border:1px solid #2a3157}
+small{opacity:.7;padding:6px;text-align:center}
+</style></head><body>
+<canvas id="c" width="800" height="800"></canvas>
+<small>P1: A/D turn, W shoot (left turret) · P2: ←/→ turn, ↑ shoot (right turret) · SPACE: big shot from both turrets · Enter: start</small>
+<script>
+const cv=document.getElementById('c'),g=cv.getContext('2d'),W=800,C=W/2;
+const K={};let state='menu',best={score:0,time:0};
+try{best=JSON.parse(localStorage.getItem('cfc')||'')||best}catch(e){}
+const LIM=100*Math.PI/180,SPD=3.2;
+let T,enemies,shots,parts,score,time,hp,charges,regen,spawnT,flash;
+const P=[{base:Math.PI,a:Math.PI,cd:0,x:-18,col:'#4fd1ff',l:'a',r:'d',f:'w'},
+         {base:0,a:0,cd:0,x:18,col:'#ffb454',l:'ArrowLeft',r:'ArrowRight',f:'ArrowUp'}];
+function reset(){enemies=[];shots=[];parts=[];score=0;time=0;hp=5;charges=3;regen=0;spawnT=1;flash=0;P.forEach(p=>{p.a=p.base;p.cd=0})}
+function key(e,d){const k=e.key.length==1?e.key.toLowerCase():e.key;K[k]=d;
+ if(['ArrowUp','ArrowLeft','ArrowRight',' '].includes(e.key))e.preventDefault();
+ if(d&&!e.repeat){if(k=='Enter'&&state!='play'){reset();state='play'}
+  if(k==' '&&state=='play')big()}}
+addEventListener('keydown',e=>key(e,1));addEventListener('keyup',e=>key(e,0));
+function fire(p,b){shots.push({x:C+p.x+Math.cos(p.a)*26,y:C+Math.sin(p.a)*26,vx:Math.cos(p.a)*(b?420:640),vy:Math.sin(p.a)*(b?420:640),big:b,col:p.col,life:2})}
+function big(){if(charges<1)return;charges--;P.forEach(p=>fire(p,true))}
+function boom(x,y,col,n){for(let i=0;i<n;i++){const a=Math.random()*6.28,s=40+Math.random()*180;parts.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,l:.6,col})}}
+function spawn(){const a=Math.random()*6.28,r=560,large=Math.random()<Math.min(.12+time/200,.4);
+ enemies.push({x:C+Math.cos(a)*r,y:C+Math.sin(a)*r,r:large?26:12,large,sp:(large?24:38)+Math.min(time,120)*.5+Math.random()*12})}
+function update(dt){
+ time+=dt;spawnT-=dt;if(spawnT<=0){spawn();spawnT=Math.max(.35,1.3-time/90)}
+ regen+=dt;if(charges<3&&regen>=8){charges++;regen=0}if(charges>=3)regen=0;
+ P.forEach(p=>{let d=(K[p.r]?1:0)-(K[p.l]?1:0);p.a+=d*SPD*dt;
+  let rel=Math.atan2(Math.sin(p.a-p.base),Math.cos(p.a-p.base));rel=Math.max(-LIM,Math.min(LIM,rel));p.a=p.base+rel;
+  p.cd-=dt;if(K[p.f]&&p.cd<=0){fire(p,false);p.cd=.22}});
+ shots.forEach(s=>{s.x+=s.vx*dt;s.y+=s.vy*dt;s.life-=dt});
+ enemies.forEach(e=>{const dx=C-e.x,dy=C-e.y,d=Math.hypot(dx,dy);e.x+=dx/d*e.sp*dt;e.y+=dy/d*e.sp*dt;
+  if(d<e.r+16){e.dead=1;hp--;flash=.3;boom(e.x,e.y,'#ff4d6d',20);if(hp<=0)over()}});
+ shots.forEach(s=>enemies.forEach(e=>{if(s.dead||e.dead)return;if(Math.hypot(s.x-e.x,s.y-e.y)<e.r+(s.big?8:3)){
+   if(e.large&&!s.big){s.dead=1;boom(s.x,s.y,'#889',4)}
+   else{e.dead=1;score+=e.large?50:10;boom(e.x,e.y,e.large?'#c77dff':'#7dffb0',e.large?30:12);if(!s.big)s.dead=1}}}));
+ shots=shots.filter(s=>!s.dead&&s.life>0);enemies=enemies.filter(e=>!e.dead);
+ parts.forEach(p=>{p.x+=p.vx*dt;p.y+=p.vy*dt;p.l-=dt});parts=parts.filter(p=>p.l>0);flash=Math.max(0,flash-dt)}
+function over(){state='over';if(score>best.score)best.score=score;if(time>best.time)best.time=time;
+ try{localStorage.setItem('cfc',JSON.stringify(best))}catch(e){}}
+function txt(t,x,y,s,c,al){g.fillStyle=c||'#dfe6ff';g.font=s+'px system-ui';g.textAlign=al||'center';g.fillText(t,x,y)}
+function draw(){
+ g.clearRect(0,0,W,W);
+ if(flash>0){g.fillStyle='rgba(255,60,90,'+flash+')';g.fillRect(0,0,W,W)}
+ if(state!='menu'){
+  P.forEach(p=>{g.strokeStyle=p.col+'33';g.lineWidth=1;g.beginPath();g.moveTo(C+p.x,C);
+   g.arc(C+p.x,C,90,p.base-LIM,p.base+LIM);g.closePath();g.stroke()});
+  enemies.forEach(e=>{g.fillStyle=e.large?'#c77dff':'#7dffb0';g.beginPath();
+   if(e.large){for(let i=0;i<6;i++){const a=i*Math.PI/3;g.lineTo(e.x+Math.cos(a)*e.r,e.y+Math.sin(a)*e.r)}}else g.arc(e.x,e.y,e.r,0,6.28);g.fill()});
+  shots.forEach(s=>{g.fillStyle=s.big?'#fff':s.col;g.shadowColor=s.col;g.shadowBlur=s.big?18:6;g.beginPath();g.arc(s.x,s.y,s.big?8:3,0,6.28);g.fill();g.shadowBlur=0});
+  parts.forEach(p=>{g.globalAlpha=Math.max(0,p.l*1.6);g.fillStyle=p.col;g.fillRect(p.x,p.y,3,3)});g.globalAlpha=1;
+  g.fillStyle='#1c2447';g.strokeStyle='#5b6bb5';g.lineWidth=2;g.beginPath();g.arc(C,C,16,0,6.28);g.fill();g.stroke();
+  P.forEach(p=>{g.save();g.translate(C+p.x,C);g.rotate(p.a);g.fillStyle=p.col;g.fillRect(0,-4,28,8);g.beginPath();g.arc(0,0,9,0,6.28);g.fill();g.restore()});
+  txt('Score '+score,16,30,22,'#dfe6ff','left');txt('Time '+time.toFixed(1)+'s',W-16,30,22,'#dfe6ff','right');
+  txt('Best '+best.score+' pts · '+best.time.toFixed(1)+'s',C,30,16,'#8a95c9');
+  txt('Core',16,W-44,14,'#8a95c9','left');for(let i=0;i<5;i++){g.fillStyle=i<hp?'#ff4d6d':'#2a3157';g.fillRect(16+i*24,W-36,20,14)}
+  txt('Big shots',W-16,W-44,14,'#8a95c9','right');for(let i=0;i<3;i++){g.fillStyle=i<charges?'#fff':'#2a3157';g.beginPath();g.arc(W-24-i*26,W-28,9,0,6.28);g.fill()}
+  if(charges<3){g.fillStyle='#5b6bb5';g.fillRect(W-100,W-14,84*regen/8,3)}
+ }
+ if(state=='menu'){txt('CROSSFIRE CORE',C,260,52,'#fff');
+  txt('Two turrets guard the core. Swarms close in from every side.',C,320,18,'#a9b4e6');
+  txt('Small shots kill small green drones. Purple hexagons need a BIG shot.',C,350,18,'#a9b4e6');
+  txt('Press SPACE together: big shots are limited and recharge slowly.',C,380,18,'#a9b4e6');
+  txt('P1 (left): A / D turn, W shoot',C,440,20,'#4fd1ff');txt('P2 (right): ← / → turn, ↑ shoot',C,470,20,'#ffb454');
+  txt('Press Enter to start',C,540,26,'#fff')}
+ if(state=='over'){g.fillStyle='rgba(8,10,20,.8)';g.fillRect(0,0,W,W);txt('CORE LOST',C,300,48,'#ff4d6d');
+  txt('Score '+score+' · Survived '+time.toFixed(1)+'s',C,350,24);
+  txt('Best '+best.score+' pts · '+best.time.toFixed(1)+'s',C,385,18,'#8a95c9');txt('Press Enter to retry',C,450,24)}}
+let last=performance.now();
+(function loop(n){const dt=Math.min(.05,(n-last)/1000);last=n;if(state=='play')update(dt);else if(state=='over'){parts.forEach(p=>{p.x+=p.vx*dt;p.y+=p.vy*dt;p.l-=dt})}draw();requestAnimationFrame(loop)})(last);
+reset();
+</script></body></html>
